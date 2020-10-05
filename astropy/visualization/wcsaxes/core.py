@@ -9,11 +9,13 @@ from matplotlib import rcParams
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes, subplot_class_factory
 from matplotlib.transforms import Affine2D, Bbox, Transform
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredEllipse, AnchoredSizeBar
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord, BaseCoordinateFrame
 from astropy.wcs import WCS
 from astropy.wcs.wcsapi import BaseHighLevelWCS
+from astropy.wcs.utils import proj_plane_pixel_scales
 
 from .transforms import CoordinateTransform
 from .coordinates_map import CoordinatesMap
@@ -25,7 +27,8 @@ from .wcsapi import IDENTITY, transform_coord_meta_from_wcs
 __all__ = ['WCSAxes', 'WCSAxesSubplot']
 
 VISUAL_PROPERTIES = ['facecolor', 'edgecolor', 'linewidth', 'alpha', 'linestyle']
-
+CORNERS = {'top right': 1, 'top left': 2, 'bottom left': 3, 'bottom right': 4,
+           'right': 5, 'left': 6, 'bottom': 8, 'top': 9}
 
 class _WCSAxesArtist(Artist):
     """This is a dummy artist to enforce the correct z-order of axis ticks,
@@ -324,6 +327,153 @@ class WCSAxes(Axes):
             args = tuple(plot_data) + args[1:]
 
         return super().plot(*args, **kwargs)
+
+    def add_beam(self, header=None, major=None, minor=None, angle=None, corner="bottom left",
+                 frame=False, borderpad=0.4, pad=0.5, **kwargs):
+        """
+        Display the beam shape and size
+
+        By default, this method will search for the BMAJ, BMIN, and BPA
+        keywords in the FITS header to set the major and minor axes and the
+        position angle on the sky.
+
+        Parameters
+        ----------
+
+        header : :class:`astropy.io.fits.Header`, optional
+            Header containing the beam parameters
+
+        major : float, quantity or unit, optional
+            Major axis of the beam in degrees or an angular quantity (overrides
+            BMAJ if present in header)
+
+        minor : float, quantity or unit, optional
+            Minor axis of the beam in degrees or an angular quantity (overrides
+            BMIN if present in header)
+
+        angle : float, quantity or unit, optional
+            Position angle of the beam on the sky in degrees or an angular
+            quantity (overrides BPA if present in header) in the anticlockwise
+            direction.
+
+        corner : str, optional
+            The beam location. Acceptable values are 'left', 'right',
+            'top', 'bottom', 'top left', 'top right', 'bottom left'
+            (default), and 'bottom right'.
+
+        frame : str, optional
+            Whether to display a frame behind the beam (default is False)
+
+        kwargs
+            Additional arguments are passed to the matplotlib Ellipse class.
+            See the matplotlib documentation for more details.
+        """
+
+        if header:
+            major = header["BMAJ"]
+            minor = header["BMIN"]
+            angle = header["BPA"]
+
+        if isinstance(major, u.Quantity):
+            major = major.to(u.degree).value
+        elif isinstance(major, u.Unit):
+            major = major.to(u.degree)
+
+        if isinstance(minor, u.Quantity):
+            minor = minor.to(u.degree).value
+        elif isinstance(minor, u.Unit):
+            minor = minor.to(u.degree)
+
+        if isinstance(angle, u.Quantity):
+            angle = angle.to(u.degree).value
+        elif isinstance(angle, u.Unit):
+            angle = angle.to(u.degree)
+
+        if self.wcs.is_celestial:
+            pix_scale = proj_plane_pixel_scales(self.wcs)
+            sx = pix_scale[0]
+            sy = pix_scale[1]
+            degrees_per_pixel = np.sqrt(sx * sy)
+        else:
+            raise ValueError("Cannot show beam when WCS is not celestial")
+
+        minor /= degrees_per_pixel
+        major /= degrees_per_pixel
+
+        corner = CORNERS[corner]
+
+        beam = AnchoredEllipse(
+            self.transData,
+            width=minor,
+            height=major,
+            angle=angle,
+            loc=corner,
+            pad=pad,
+            borderpad=borderpad,
+            frameon=frame,
+        )
+        beam.ellipse.set(**kwargs)
+
+        self.add_artist(beam)
+
+    def add_scalebar(self, length, label=None, corner="bottom right", frame=False,
+                     borderpad=0.4, pad=0.5, **kwargs):
+        """Add a scale bar
+
+        Parameters
+        ----------
+
+        length : float, or quantity
+            The lenght of the scalebar in degrees, an angular quantity or angular unit
+
+        label: str, optional
+            Label to place below the scalebar
+
+        corner : str, optional
+            Where to place the scalebar. Acceptable values are:, 'left',
+            'right', 'top', 'bottom', 'top left', 'top right', 'bottom
+            left', 'bottom right (default)'
+
+        frame : str, optional
+            Whether to display a frame behind the scalebar (default is False)
+
+        kwargs
+            Additional arguments are passed to the matplotlib AnchoredSizeBar
+            class. See the matplotlib documentation for
+            more details.
+
+        """
+
+        if isinstance(length, u.Quantity):
+            length = length.to(u.degree).value
+        elif isinstance(length, u.Unit):
+            length = length.to(u.degree)
+
+        if self.wcs.is_celestial:
+            pix_scale = proj_plane_pixel_scales(self.wcs)
+            sx = pix_scale[0]
+            sy = pix_scale[1]
+            degrees_per_pixel = np.sqrt(sx * sy)
+        else:
+            raise ValueError("Cannot show scalebar when WCS is not celestial")
+
+        length = length / degrees_per_pixel
+
+        corner = CORNERS[corner]
+
+        scalebar = AnchoredSizeBar(
+            self.transData,
+            length,
+            label,
+            corner,
+            pad=pad,
+            borderpad=borderpad,
+            sep=5,
+            frameon=frame,
+            **kwargs
+        )
+
+        self.add_artist(scalebar)
 
     def reset_wcs(self, wcs=None, slices=None, transform=None, coord_meta=None):
         """
