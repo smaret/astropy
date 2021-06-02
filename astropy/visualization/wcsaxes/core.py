@@ -30,6 +30,7 @@ VISUAL_PROPERTIES = ['facecolor', 'edgecolor', 'linewidth', 'alpha', 'linestyle'
 CORNERS = {'top right': 1, 'top left': 2, 'bottom left': 3, 'bottom right': 4,
            'right': 5, 'left': 6, 'bottom': 8, 'top': 9}
 
+
 class _WCSAxesArtist(Artist):
     """This is a dummy artist to enforce the correct z-order of axis ticks,
     tick labels, and gridlines.
